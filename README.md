@@ -26,13 +26,13 @@ set -gx LS_COLORS (curl -fsSL https://github.com/vufly/vieza/releases/latest/dow
 Nushell:
 
 ```nu
-$env.LS_COLORS = (http get https://github.com/vufly/vieza/releases/latest/download/LS_COLORS | str trim)
+$env.LS_COLORS = (http get https://github.com/vufly/vieza/releases/latest/download/LS_COLORS | decode utf-8 | str trim)
 ```
 
 PowerShell:
 
 ```powershell
-$env:LS_COLORS = (Invoke-WebRequest -UseBasicParsing https://github.com/vufly/vieza/releases/latest/download/LS_COLORS).Content.Trim()
+$env:LS_COLORS = [Text.Encoding]::UTF8.GetString((Invoke-WebRequest -UseBasicParsing https://github.com/vufly/vieza/releases/latest/download/LS_COLORS).Content).Trim()
 ```
 
 Tcsh/Csh:
@@ -124,7 +124,7 @@ set -gx LS_COLORS (string trim < generated/LS_COLORS)
 Nushell:
 
 ```nu
-$env.LS_COLORS = (open generated/LS_COLORS | str trim)
+$env.LS_COLORS = (open --raw generated/LS_COLORS | str trim)
 ```
 
 PowerShell:
@@ -158,7 +158,7 @@ vieza generate; and set -gx LS_COLORS (string trim < generated/LS_COLORS)
 Nushell:
 
 ```nu
-vieza generate; if $env.LAST_EXIT_CODE == 0 { $env.LS_COLORS = (open generated/LS_COLORS | str trim) }
+vieza generate; if $env.LAST_EXIT_CODE == 0 { $env.LS_COLORS = (open --raw generated/LS_COLORS | str trim) }
 ```
 
 PowerShell:
