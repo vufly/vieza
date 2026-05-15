@@ -56,7 +56,7 @@ jobs:
             asset: vieza-aarch64-unknown-linux-gnu.tar.gz
             target: aarch64-unknown-linux-gnu
             binary: vieza
-          - os: macos-13
+          - os: macos-14
             asset: vieza-x86_64-apple-darwin.tar.gz
             target: x86_64-apple-darwin
             binary: vieza
@@ -107,11 +107,12 @@ jobs:
         shell: pwsh
         run: |
           $asset = "${{ matrix.asset }}"
-          $dir = "dist/$($asset -replace '\\.zip$','')"
+          $name = $asset -replace '\\.zip$',''
+          $dir = "dist/$name"
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" $dir
           Copy-Item LICENSE, README.md $dir
-          Compress-Archive -Path "$dir/*" -DestinationPath "dist/$asset"
+          tar -a -cf "dist/$asset" -C dist $name
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
