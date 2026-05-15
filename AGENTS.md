@@ -41,6 +41,19 @@ Before bumping `DEFAULT_EZA_REF` or `DEFAULT_VIVID_REF`:
    - `*README.md=1;4;33`
    - source files like `*.rs=1;33`
 
+## Release Assets
+
+GitHub releases should upload these assets in this order:
+
+1. `vieza.zip`, containing exactly the four generated files.
+2. `LS_COLORS`.
+3. `filetypes.yml`.
+4. `vieza-filetypes.yml`.
+5. `vieza.yml`.
+6. Platform binary archives named `vieza-<target>.tar.gz` or `vieza-<target>.zip`, including Linux/macOS/Windows x86_64 and ARM64 targets where supported.
+
+Generated release assets come from tracked `generated/` files. Do not regenerate during release packaging unless upstream refs were intentionally bumped and verification already passed.
+
 ## Known Limitations
 
 - `LS_COLORS` cannot fully encode eza's prefix rule `readme*`, so `vieza` hardcodes common README filename variants.

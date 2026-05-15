@@ -16,6 +16,17 @@ After a release is published to crates.io:
 cargo install vieza
 ```
 
+## Release Assets
+
+GitHub releases publish these assets:
+
+1. `vieza.zip`: all generated files in one archive.
+2. `LS_COLORS`: generated `LS_COLORS` output.
+3. `filetypes.yml`: vivid defaults plus eza-derived filetypes.
+4. `vieza-filetypes.yml`: eza-derived filetypes only.
+5. `vieza.yml`: vivid theme that mimics eza filename colors.
+6. `vieza-*.tar.gz` / `vieza-*.zip`: Linux, macOS, and Windows binary archives for x86_64 and ARM64 where supported.
+
 ## Usage
 
 ```sh

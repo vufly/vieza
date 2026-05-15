@@ -1,0 +1,150 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  generated-assets:
+    name: generated assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package generated files
+        run: |
+          mkdir -p dist
+          zip -j dist/vieza.zip \
+            generated/LS_COLORS \
+            generated/filetypes.yml \
+            generated/vieza-filetypes.yml \
+            generated/vieza.yml
+          cp generated/LS_COLORS dist/LS_COLORS
+          cp generated/filetypes.yml dist/filetypes.yml
+          cp generated/vieza-filetypes.yml dist/vieza-filetypes.yml
+          cp generated/vieza.yml dist/vieza.yml
+
+      - name: Upload generated artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-generated
+          path: |
+            dist/vieza.zip
+            dist/LS_COLORS
+            dist/filetypes.yml
+            dist/vieza-filetypes.yml
+            dist/vieza.yml
+          if-no-files-found: error
+
+  binaries:
+    name: binary ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: vieza-x86_64-unknown-linux-gnu.tar.gz
+            target: x86_64-unknown-linux-gnu
+            binary: vieza
+          - os: ubuntu-latest
+            asset: vieza-aarch64-unknown-linux-gnu.tar.gz
+            target: aarch64-unknown-linux-gnu
+            binary: vieza
+          - os: macos-13
+            asset: vieza-x86_64-apple-darwin.tar.gz
+            target: x86_64-apple-darwin
+            binary: vieza
+          - os: macos-14
+            asset: vieza-aarch64-apple-darwin.tar.gz
+            target: aarch64-apple-darwin
+            binary: vieza
+          - os: windows-latest
+            asset: vieza-x86_64-pc-windows-msvc.zip
+            target: x86_64-pc-windows-msvc
+            binary: vieza.exe
+          - os: windows-latest
+            asset: vieza-aarch64-pc-windows-msvc.zip
+            target: aarch64-pc-windows-msvc
+            binary: vieza.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux ARM64 linker
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Package Unix binary
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          name="${{ matrix.asset }}"
+          dir="dist/${name%.tar.gz}"
+          mkdir -p "$dir"
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "$dir/"
+          cp LICENSE README.md "$dir/"
+          tar -C dist -czf "dist/$name" "${name%.tar.gz}"
+
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $asset = "${{ matrix.asset }}"
+          $dir = "dist/$($asset -replace '\\.zip$','')"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" $dir
+          Copy-Item LICENSE, README.md $dir
+          Compress-Archive -Path "$dir/*" -DestinationPath "dist/$asset"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    runs-on: ubuntu-latest
+    needs:
+      - generated-assets
+      - binaries
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/vieza.zip
+            dist/LS_COLORS
+            dist/filetypes.yml
+            dist/vieza-filetypes.yml
+            dist/vieza.yml
+            dist/vieza-x86_64-unknown-linux-gnu.tar.gz
+            dist/vieza-aarch64-unknown-linux-gnu.tar.gz
+            dist/vieza-x86_64-apple-darwin.tar.gz
+            dist/vieza-aarch64-apple-darwin.tar.gz
+            dist/vieza-x86_64-pc-windows-msvc.zip
+            dist/vieza-aarch64-pc-windows-msvc.zip
