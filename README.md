@@ -2,6 +2,20 @@
 
 Generate vivid theme/database files that mimic eza filename colors, then use vivid to produce `LS_COLORS`.
 
+## Install
+
+From source:
+
+```sh
+cargo install --git https://github.com/vufly/vieza
+```
+
+After a release is published to crates.io:
+
+```sh
+cargo install vieza
+```
+
 ## Usage
 
 ```sh
@@ -155,14 +169,26 @@ Use local vivid filetypes source instead of fetching:
 cargo run -- generate --vivid-source /path/to/vivid/config/filetypes.yml
 ```
 
-Generate from a specific eza ref. Default is pinned to `eed27ed05e74542af5852aed40e3dbff87d69c43` for reproducible output.
+Generate from specific upstream refs. Defaults use latest known release tags for reproducible output:
+
+- eza: `v0.23.4`
+- vivid: `v0.11.1`
 
 ```sh
 cargo run -- generate --eza-ref main
+cargo run -- generate --vivid-ref master
 ```
 
 ## Notes
 
 - `LS_COLORS` cannot represent all eza UI colors. This project targets filename/filetype coloring only.
 - Colors are adaptive ANSI (`ansi:red`, `ansi:blue`, etc.), not fixed RGB.
-- `PLAN.md` records implementation direction and later work.
+- `AGENTS.md` records maintenance instructions for future upstream ref updates.
+
+## Maintenance
+
+Default upstream refs use release tags for reproducibility. Logic changes are only needed when eza or vivid changes source/schema semantics, not for every extension or filename added under existing categories. See `AGENTS.md` before bumping upstream refs.
+
+## License
+
+MIT. See `LICENSE`.

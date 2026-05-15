@@ -6,8 +6,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const DEFAULT_EZA_REF: &str = "eed27ed05e74542af5852aed40e3dbff87d69c43";
-const DEFAULT_VIVID_REF: &str = "165bbbbe9613e4a8b2dad781c8ff1e34fd052d0d";
+const DEFAULT_EZA_REF: &str = "v0.23.4";
+const DEFAULT_VIVID_REF: &str = "v0.11.1";
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
