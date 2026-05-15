@@ -1,6 +1,6 @@
 # eza-vivid
 
-Generate vivid and raw `LS_COLORS` output that mimics eza filename colors while using the terminal ANSI palette for dark/light adaptation.
+Generate vivid theme/database files that mimic eza filename colors, then use vivid to produce `LS_COLORS`.
 
 ## Usage
 
@@ -60,28 +60,28 @@ Generate and set in one command:
 Bash, Zsh, Ksh:
 
 ```sh
-export LS_COLORS="$(cargo run --quiet -- generate --print-ls-colors)"
+cargo run --quiet -- generate && export LS_COLORS="$(tr -d '\n' < generated/LS_COLORS)"
 ```
 
 Fish:
 
 ```fish
-set -gx LS_COLORS (cargo run --quiet -- generate --print-ls-colors | string trim)
+cargo run --quiet -- generate; and set -gx LS_COLORS (string trim < generated/LS_COLORS)
 ```
 
 Nushell:
 
 ```nu
-$env.LS_COLORS = (cargo run --quiet -- generate --print-ls-colors | str trim)
+cargo run --quiet -- generate; if $env.LAST_EXIT_CODE == 0 { $env.LS_COLORS = (open generated/LS_COLORS | str trim) }
 ```
 
 PowerShell:
 
 ```powershell
-$env:LS_COLORS = (cargo run --quiet -- generate --print-ls-colors).Trim()
+cargo run --quiet -- generate; if ($LASTEXITCODE -eq 0) { $env:LS_COLORS = (Get-Content -Raw generated/LS_COLORS).Trim() }
 ```
 
-Use vivid instead of raw `generated/LS_COLORS`:
+Regenerate `LS_COLORS` manually with vivid:
 
 Bash, Zsh, Ksh:
 
@@ -113,7 +113,7 @@ Tcsh/Csh:
 setenv LS_COLORS "`vivid -d generated/filetypes-vivid-eza.yml generate generated/eza-adaptive.yml`"
 ```
 
-Generate files and set with vivid in one command:
+Generate files and set from vivid output in one command:
 
 Bash, Zsh, Ksh:
 

@@ -3,7 +3,7 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const DEFAULT_EZA_REF: &str = "eed27ed05e74542af5852aed40e3dbff87d69c43";
@@ -24,7 +24,6 @@ struct GenerateArgs {
     source: Option<PathBuf>,
     vivid_source: Option<PathBuf>,
     vivid_theme_source: Option<PathBuf>,
-    print_ls_colors: bool,
 }
 
 impl Default for GenerateArgs {
@@ -36,7 +35,6 @@ impl Default for GenerateArgs {
             source: None,
             vivid_source: None,
             vivid_theme_source: None,
-            print_ls_colors: false,
         }
     }
 }
@@ -122,38 +120,6 @@ impl StyleSpec {
         Self { foreground, attrs }
     }
 
-    fn ansi_codes(self) -> String {
-        let mut codes: Vec<&str> = self
-            .attrs
-            .iter()
-            .filter_map(|attr| match *attr {
-                "bold" => Some("1"),
-                "faint" => Some("2"),
-                "italic" => Some("3"),
-                "underline" => Some("4"),
-                _ => None,
-            })
-            .collect();
-
-        if let Some(code) = self.foreground.and_then(|color| match color {
-            "red" => Some("31"),
-            "green" => Some("32"),
-            "yellow" => Some("33"),
-            "blue" => Some("34"),
-            "magenta" => Some("35"),
-            "cyan" => Some("36"),
-            _ => None,
-        }) {
-            codes.push(code);
-        }
-
-        if codes.is_empty() {
-            "0".to_string()
-        } else {
-            codes.join(";")
-        }
-    }
-
     fn write_yaml(self, out: &mut String, indent: &str) {
         if let Some(foreground) = self.foreground {
             out.push_str(indent);
@@ -222,7 +188,6 @@ where
                     "--vivid-theme-source",
                 )?));
             }
-            "--print-ls-colors" => out.print_ls_colors = true,
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -244,7 +209,7 @@ where
 
 fn print_help() {
     println!(
-        "eza-vivid\n\nUsage:\n  eza-vivid generate [--out-dir DIR] [--eza-ref REF] [--source PATH] [--vivid-ref REF] [--vivid-source PATH] [--vivid-theme-source PATH] [--print-ls-colors]\n\nOptions:\n  --out-dir DIR              Output directory (default: generated)\n  --eza-ref REF              eza git ref to fetch\n  --source PATH              Local eza src/info/filetype.rs\n  --vivid-ref REF            vivid git ref to fetch\n  --vivid-source PATH        Local vivid config/filetypes.yml\n  --vivid-theme-source PATH  Local vivid themes/ansi.yml\n  --print-ls-colors          Print generated LS_COLORS to stdout"
+        "eza-vivid\n\nUsage:\n  eza-vivid generate [--out-dir DIR] [--eza-ref REF] [--source PATH] [--vivid-ref REF] [--vivid-source PATH] [--vivid-theme-source PATH]\n\nOptions:\n  --out-dir DIR              Output directory (default: generated)\n  --eza-ref REF              eza git ref to fetch\n  --source PATH              Local eza src/info/filetype.rs\n  --vivid-ref REF            vivid git ref to fetch\n  --vivid-source PATH        Local vivid config/filetypes.yml\n  --vivid-theme-source PATH  Local vivid themes/ansi.yml"
     );
 }
 
@@ -272,22 +237,21 @@ fn generate(args: GenerateArgs) -> Result<()> {
     fs::create_dir_all(&args.out_dir)
         .map_err(|e| err(format!("failed to create {}: {e}", args.out_dir.display())))?;
 
+    let theme_path = args.out_dir.join("eza-adaptive.yml");
+    let eza_db_path = args.out_dir.join("filetypes-eza.yml");
+    let combined_db_path = args.out_dir.join("filetypes-vivid-eza.yml");
+    let ls_colors_path = args.out_dir.join("LS_COLORS");
+
+    fs::write(&theme_path, render_vivid_theme(&vivid_theme))?;
+    fs::write(&eza_db_path, &eza_filetypes)?;
     fs::write(
-        args.out_dir.join("eza-adaptive.yml"),
-        render_vivid_theme(&vivid_theme),
-    )?;
-    fs::write(args.out_dir.join("filetypes-eza.yml"), &eza_filetypes)?;
-    fs::write(
-        args.out_dir.join("filetypes-vivid-eza.yml"),
+        &combined_db_path,
         render_combined_vivid_filetypes(&vivid_filetypes, &combined_eza_filetypes),
     )?;
-
-    let ls_colors = render_ls_colors(&filetypes);
-    fs::write(args.out_dir.join("LS_COLORS"), &ls_colors)?;
-
-    if args.print_ls_colors {
-        println!("{ls_colors}");
-    }
+    fs::write(
+        &ls_colors_path,
+        generate_ls_colors_with_vivid(&combined_db_path, &theme_path)?,
+    )?;
 
     Ok(())
 }
@@ -532,50 +496,28 @@ fn render_combined_vivid_filetypes(vivid_filetypes: &str, eza_filetypes: &str) -
     out
 }
 
-fn render_ls_colors(filetypes: &EzaFileTypes) -> String {
-    let mut pairs: Vec<String> = core_ls_pairs()
-        .into_iter()
-        .map(|(key, style)| format!("{key}={}", style.ansi_codes()))
-        .collect();
+fn generate_ls_colors_with_vivid(database_path: &Path, theme_path: &Path) -> Result<String> {
+    let output = Command::new("vivid")
+        .arg("-d")
+        .arg(database_path)
+        .arg("generate")
+        .arg(theme_path)
+        .output()
+        .map_err(|e| err(format!("failed to run vivid: {e}")))?;
 
-    for (name, category) in &filetypes.filenames {
-        pairs.push(format!(
-            "{}={}",
-            escape_ls_key(name),
-            category.style().ansi_codes()
-        ));
-    }
-    for (ext, category) in &filetypes.extensions {
-        pairs.push(format!(
-            "*.{}={}",
-            escape_ls_key(ext),
-            category.style().ansi_codes()
-        ));
-    }
-    for (pattern, category) in &filetypes.patterns {
-        pairs.push(format!(
-            "{}={}",
-            escape_ls_key(pattern),
-            category.style().ansi_codes()
-        ));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(err(format!(
+            "vivid failed while generating LS_COLORS from {} and {}: {}",
+            database_path.display(),
+            theme_path.display(),
+            stderr.trim()
+        )));
     }
 
-    pairs.join(":")
-}
-
-fn core_ls_pairs() -> Vec<(&'static str, StyleSpec)> {
-    vec![
-        ("fi", StyleSpec::new(None, &[])),
-        ("di", StyleSpec::new(Some("blue"), &["bold"])),
-        ("ln", StyleSpec::new(Some("cyan"), &[])),
-        ("pi", StyleSpec::new(Some("yellow"), &[])),
-        ("so", StyleSpec::new(Some("red"), &["bold"])),
-        ("bd", StyleSpec::new(Some("yellow"), &["bold"])),
-        ("cd", StyleSpec::new(Some("yellow"), &["bold"])),
-        ("or", StyleSpec::new(Some("red"), &[])),
-        ("mi", StyleSpec::new(Some("red"), &["bold"])),
-        ("ex", StyleSpec::new(Some("green"), &["bold"])),
-    ]
+    String::from_utf8(output.stdout)
+        .map(|s| s.trim().to_string())
+        .map_err(|e| err(format!("vivid returned non-UTF-8 output: {e}")))
 }
 
 fn all_categories() -> [FileCategory; 11] {
@@ -596,10 +538,6 @@ fn all_categories() -> [FileCategory; 11] {
 
 fn yaml_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
-}
-
-fn escape_ls_key(value: &str) -> String {
-    value.replace(':', "\\:").replace('=', "\\=")
 }
 
 fn err(message: impl Into<String>) -> Box<dyn Error> {
@@ -636,22 +574,8 @@ const EXTENSION_TYPES: Map<&'static str, FileType> = phf_map! {
     }
 
     #[test]
-    fn serializes_styles_to_ansi_codes() {
-        assert_eq!(FileCategory::Build.style().ansi_codes(), "1;4;33");
-        assert_eq!(FileCategory::Temp.style().ansi_codes(), "2");
-        assert_eq!(FileCategory::Image.style().ansi_codes(), "35");
-    }
-
-    #[test]
     fn renders_outputs() {
         let parsed = parse_filetypes(SAMPLE).unwrap();
-        let ls_colors = render_ls_colors(&parsed);
-        assert!(ls_colors.contains("di=1;34"));
-        assert!(ls_colors.contains("Cargo.toml=1;4;33"));
-        assert!(ls_colors.contains("*.png=35"));
-        assert!(ls_colors.contains("README*=1;4;33"));
-        assert!(ls_colors.contains("*~=2"));
-
         let database = render_vivid_filetypes(&parsed);
         assert!(database.contains("- \"Cargo.toml\""));
         assert!(database.contains("- \".rs\""));
@@ -704,7 +628,6 @@ programming:
             "filetypes.yml".to_string(),
             "--vivid-theme-source".to_string(),
             "ansi.yml".to_string(),
-            "--print-ls-colors".to_string(),
         ])
         .unwrap();
 
@@ -714,6 +637,5 @@ programming:
         assert_eq!(args.source, Some(PathBuf::from("filetype.rs")));
         assert_eq!(args.vivid_source, Some(PathBuf::from("filetypes.yml")));
         assert_eq!(args.vivid_theme_source, Some(PathBuf::from("ansi.yml")));
-        assert!(args.print_ls_colors);
     }
 }
