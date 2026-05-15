@@ -1,4 +1,4 @@
-# eza-vivid
+# vieza
 
 Generate vivid theme/database files that mimic eza filename colors, then use vivid to produce `LS_COLORS`.
 
@@ -10,9 +10,9 @@ cargo run -- generate
 
 Outputs:
 
-- `generated/eza-adaptive.yml`
-- `generated/filetypes-eza.yml`
-- `generated/filetypes-vivid-eza.yml`
+- `generated/vieza.yml`
+- `generated/vieza-filetypes.yml`
+- `generated/filetypes.yml`
 - `generated/LS_COLORS`
 
 ## Shell Setup
@@ -86,31 +86,31 @@ Regenerate `LS_COLORS` manually with vivid:
 Bash, Zsh, Ksh:
 
 ```sh
-export LS_COLORS="$(vivid -d generated/filetypes-vivid-eza.yml generate generated/eza-adaptive.yml)"
+export LS_COLORS="$(vivid -d generated/filetypes.yml generate generated/vieza.yml)"
 ```
 
 Fish:
 
 ```fish
-set -gx LS_COLORS (vivid -d generated/filetypes-vivid-eza.yml generate generated/eza-adaptive.yml | string trim)
+set -gx LS_COLORS (vivid -d generated/filetypes.yml generate generated/vieza.yml | string trim)
 ```
 
 Nushell:
 
 ```nu
-$env.LS_COLORS = (vivid -d generated/filetypes-vivid-eza.yml generate generated/eza-adaptive.yml | str trim)
+$env.LS_COLORS = (vivid -d generated/filetypes.yml generate generated/vieza.yml | str trim)
 ```
 
 PowerShell:
 
 ```powershell
-$env:LS_COLORS = (vivid -d generated/filetypes-vivid-eza.yml generate generated/eza-adaptive.yml).Trim()
+$env:LS_COLORS = (vivid -d generated/filetypes.yml generate generated/vieza.yml).Trim()
 ```
 
 Tcsh/Csh:
 
 ```csh
-setenv LS_COLORS "`vivid -d generated/filetypes-vivid-eza.yml generate generated/eza-adaptive.yml`"
+setenv LS_COLORS "`vivid -d generated/filetypes.yml generate generated/vieza.yml`"
 ```
 
 Generate files and set from vivid output in one command:
@@ -118,30 +118,30 @@ Generate files and set from vivid output in one command:
 Bash, Zsh, Ksh:
 
 ```sh
-cargo run --quiet -- generate && export LS_COLORS="$(vivid -d generated/filetypes-vivid-eza.yml generate generated/eza-adaptive.yml)"
+cargo run --quiet -- generate && export LS_COLORS="$(vivid -d generated/filetypes.yml generate generated/vieza.yml)"
 ```
 
 Fish:
 
 ```fish
-cargo run --quiet -- generate; and set -gx LS_COLORS (vivid -d generated/filetypes-vivid-eza.yml generate generated/eza-adaptive.yml | string trim)
+cargo run --quiet -- generate; and set -gx LS_COLORS (vivid -d generated/filetypes.yml generate generated/vieza.yml | string trim)
 ```
 
 Nushell:
 
 ```nu
-cargo run --quiet -- generate; if $env.LAST_EXIT_CODE == 0 { $env.LS_COLORS = (vivid -d generated/filetypes-vivid-eza.yml generate generated/eza-adaptive.yml | str trim) }
+cargo run --quiet -- generate; if $env.LAST_EXIT_CODE == 0 { $env.LS_COLORS = (vivid -d generated/filetypes.yml generate generated/vieza.yml | str trim) }
 ```
 
 PowerShell:
 
 ```powershell
-cargo run --quiet -- generate; if ($LASTEXITCODE -eq 0) { $env:LS_COLORS = (vivid -d generated/filetypes-vivid-eza.yml generate generated/eza-adaptive.yml).Trim() }
+cargo run --quiet -- generate; if ($LASTEXITCODE -eq 0) { $env:LS_COLORS = (vivid -d generated/filetypes.yml generate generated/vieza.yml).Trim() }
 ```
 
-`filetypes-vivid-eza.yml` is intended for vivid. It contains vivid's default `config/filetypes.yml` plus eza-derived filename, extension, and pattern entries. `filetypes-eza.yml` contains only the eza-derived additions.
+`filetypes.yml` is intended for vivid. It contains vivid's default `config/filetypes.yml` plus eza-derived filename, extension, and pattern entries. `vieza-filetypes.yml` contains only the eza-derived additions.
 
-`eza-adaptive.yml` is based on vivid's `themes/ansi.yml` with an extra eza section. This keeps all stock vivid nested categories valid while adding eza-derived file groups.
+`vieza.yml` is generated directly from eza-like styles with adaptive ANSI colors. It also includes vivid-compatible stock categories so the combined filetypes database works with vivid.
 
 Use local eza source instead of fetching:
 
@@ -153,12 +153,6 @@ Use local vivid filetypes source instead of fetching:
 
 ```sh
 cargo run -- generate --vivid-source /path/to/vivid/config/filetypes.yml
-```
-
-Use local vivid ANSI theme source instead of fetching:
-
-```sh
-cargo run -- generate --vivid-theme-source /path/to/vivid/themes/ansi.yml
 ```
 
 Generate from a specific eza ref. Default is pinned to `eed27ed05e74542af5852aed40e3dbff87d69c43` for reproducible output.

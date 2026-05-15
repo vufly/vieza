@@ -23,7 +23,6 @@ struct GenerateArgs {
     vivid_ref: String,
     source: Option<PathBuf>,
     vivid_source: Option<PathBuf>,
-    vivid_theme_source: Option<PathBuf>,
 }
 
 impl Default for GenerateArgs {
@@ -34,7 +33,6 @@ impl Default for GenerateArgs {
             vivid_ref: DEFAULT_VIVID_REF.to_string(),
             source: None,
             vivid_source: None,
-            vivid_theme_source: None,
         }
     }
 }
@@ -182,12 +180,6 @@ where
             "--vivid-source" => {
                 out.vivid_source = Some(PathBuf::from(next_value(&mut args, "--vivid-source")?));
             }
-            "--vivid-theme-source" => {
-                out.vivid_theme_source = Some(PathBuf::from(next_value(
-                    &mut args,
-                    "--vivid-theme-source",
-                )?));
-            }
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -209,7 +201,7 @@ where
 
 fn print_help() {
     println!(
-        "eza-vivid\n\nUsage:\n  eza-vivid generate [--out-dir DIR] [--eza-ref REF] [--source PATH] [--vivid-ref REF] [--vivid-source PATH] [--vivid-theme-source PATH]\n\nOptions:\n  --out-dir DIR              Output directory (default: generated)\n  --eza-ref REF              eza git ref to fetch\n  --source PATH              Local eza src/info/filetype.rs\n  --vivid-ref REF            vivid git ref to fetch\n  --vivid-source PATH        Local vivid config/filetypes.yml\n  --vivid-theme-source PATH  Local vivid themes/ansi.yml"
+        "vieza\n\nUsage:\n  vieza generate [--out-dir DIR] [--eza-ref REF] [--source PATH] [--vivid-ref REF] [--vivid-source PATH]\n\nOptions:\n  --out-dir DIR        Output directory (default: generated)\n  --eza-ref REF        eza git ref to fetch\n  --source PATH        Local eza src/info/filetype.rs\n  --vivid-ref REF      vivid git ref to fetch\n  --vivid-source PATH  Local vivid config/filetypes.yml"
     );
 }
 
@@ -224,29 +216,22 @@ fn generate(args: GenerateArgs) -> Result<()> {
             .map_err(|e| err(format!("failed to read {}: {e}", path.display())))?,
         None => fetch_vivid_filetypes(&args.vivid_ref)?,
     };
-    let vivid_theme = match args.vivid_theme_source {
-        Some(path) => fs::read_to_string(&path)
-            .map_err(|e| err(format!("failed to read {}: {e}", path.display())))?,
-        None => fetch_vivid_ansi_theme(&args.vivid_ref)?,
-    };
-
     let filetypes = parse_filetypes(&source)?;
     let eza_filetypes = render_vivid_filetypes(&filetypes);
-    let combined_eza_filetypes =
-        render_vivid_filetypes_skipping(&filetypes, &collect_vivid_filetype_keys(&vivid_filetypes));
+    let filtered_vivid_filetypes = filter_vivid_filetypes(&vivid_filetypes, &filetypes);
     fs::create_dir_all(&args.out_dir)
         .map_err(|e| err(format!("failed to create {}: {e}", args.out_dir.display())))?;
 
-    let theme_path = args.out_dir.join("eza-adaptive.yml");
-    let eza_db_path = args.out_dir.join("filetypes-eza.yml");
-    let combined_db_path = args.out_dir.join("filetypes-vivid-eza.yml");
+    let theme_path = args.out_dir.join("vieza.yml");
+    let eza_db_path = args.out_dir.join("vieza-filetypes.yml");
+    let combined_db_path = args.out_dir.join("filetypes.yml");
     let ls_colors_path = args.out_dir.join("LS_COLORS");
 
-    fs::write(&theme_path, render_vivid_theme(&vivid_theme))?;
+    fs::write(&theme_path, render_vivid_theme())?;
     fs::write(&eza_db_path, &eza_filetypes)?;
     fs::write(
         &combined_db_path,
-        render_combined_vivid_filetypes(&vivid_filetypes, &combined_eza_filetypes),
+        render_combined_vivid_filetypes(&filtered_vivid_filetypes, &eza_filetypes),
     )?;
     fs::write(
         &ls_colors_path,
@@ -283,19 +268,6 @@ fn fetch_vivid_filetypes(vivid_ref: &str) -> Result<String> {
         })
 }
 
-fn fetch_vivid_ansi_theme(vivid_ref: &str) -> Result<String> {
-    let url =
-        format!("https://raw.githubusercontent.com/sharkdp/vivid/{vivid_ref}/themes/ansi.yml");
-
-    fetch_with_command("curl", &["-fsSL", &url])
-        .or_else(|_| fetch_with_command("wget", &["-qO-", &url]))
-        .map_err(|e| {
-            err(format!(
-                "failed to fetch {url}; install curl/wget or pass --vivid-theme-source: {e}"
-            ))
-        })
-}
-
 fn fetch_with_command(program: &str, args: &[&str]) -> Result<String> {
     let output = Command::new(program)
         .args(args)
@@ -320,6 +292,24 @@ fn parse_filetypes(source: &str) -> Result<EzaFileTypes> {
 
 fn add_dynamic_eza_rules(filetypes: &mut EzaFileTypes) {
     // Mirrors FileType::get_file_type rules not represented by eza's phf maps.
+    // LS_COLORS suffix matching cannot fully encode eza's `readme*` prefix rule,
+    // so include common exact filenames in addition to best-effort patterns.
+    for filename in [
+        "README",
+        "README.md",
+        "README.txt",
+        "Readme",
+        "Readme.md",
+        "Readme.txt",
+        "readme",
+        "readme.md",
+        "readme.txt",
+    ] {
+        filetypes
+            .filenames
+            .insert(filename.to_string(), FileCategory::Build);
+    }
+
     for pattern in ["README*", "Readme*", "readme*"] {
         filetypes
             .patterns
@@ -385,11 +375,12 @@ fn parse_quoted_key(line: &str) -> Option<(&str, &str)> {
     Some((&rest[..end], &rest[end + 1..]))
 }
 
-fn render_vivid_theme(vivid_ansi_theme: &str) -> String {
-    let mut out = String::from(
-        "# Generated by eza-vivid. Base is pinned vivid ansi.yml; eza section is appended.\n",
-    );
-    out.push_str(vivid_ansi_theme.trim_end());
+fn render_vivid_theme() -> String {
+    let mut out =
+        String::from("# Generated by vieza. Uses eza-like styles with terminal ANSI colors.\n\n");
+    write_ansi_colors(&mut out);
+    write_core_theme(&mut out);
+    write_stock_vivid_categories(&mut out);
     out.push_str("\n\neza:\n");
     for category in all_categories() {
         out.push_str("  ");
@@ -401,26 +392,133 @@ fn render_vivid_theme(vivid_ansi_theme: &str) -> String {
     out
 }
 
-fn render_vivid_filetypes(filetypes: &EzaFileTypes) -> String {
-    render_vivid_filetypes_skipping(filetypes, &BTreeSet::new())
+fn write_ansi_colors(out: &mut String) {
+    out.push_str("colors:\n");
+    for color in ["red", "green", "yellow", "blue", "magenta", "cyan"] {
+        out.push_str("  ");
+        out.push_str(color);
+        out.push_str(": \"ansi:");
+        out.push_str(color);
+        out.push_str("\"\n");
+    }
 }
 
-fn render_vivid_filetypes_skipping(
-    filetypes: &EzaFileTypes,
-    skip_keys: &BTreeSet<String>,
-) -> String {
+fn write_core_theme(out: &mut String) {
+    out.push_str("\ncore:\n");
+    for (key, style) in [
+        ("normal_text", StyleSpec::new(None, &[])),
+        ("regular_file", StyleSpec::new(None, &[])),
+        ("reset_to_normal", StyleSpec::new(None, &[])),
+        ("directory", StyleSpec::new(Some("blue"), &["bold"])),
+        ("symlink", StyleSpec::new(Some("cyan"), &[])),
+        ("multi_hard_link", StyleSpec::new(None, &[])),
+        ("fifo", StyleSpec::new(Some("yellow"), &[])),
+        ("socket", StyleSpec::new(Some("red"), &["bold"])),
+        ("door", StyleSpec::new(Some("red"), &["bold"])),
+        ("block_device", StyleSpec::new(Some("yellow"), &["bold"])),
+        (
+            "character_device",
+            StyleSpec::new(Some("yellow"), &["bold"]),
+        ),
+        ("broken_symlink", StyleSpec::new(Some("red"), &[])),
+        (
+            "missing_symlink_target",
+            StyleSpec::new(Some("red"), &["bold"]),
+        ),
+        (
+            "setuid",
+            StyleSpec::new(Some("green"), &["bold", "underline"]),
+        ),
+        (
+            "setgid",
+            StyleSpec::new(Some("yellow"), &["bold", "underline"]),
+        ),
+        ("file_with_capability", StyleSpec::new(None, &[])),
+        (
+            "sticky_other_writable",
+            StyleSpec::new(Some("blue"), &["bold", "underline"]),
+        ),
+        (
+            "other_writable",
+            StyleSpec::new(Some("blue"), &["underline"]),
+        ),
+        ("sticky", StyleSpec::new(Some("blue"), &["bold"])),
+        ("executable_file", StyleSpec::new(Some("green"), &["bold"])),
+    ] {
+        out.push_str("  ");
+        out.push_str(key);
+        out.push_str(":");
+        if style.foreground.is_none() && style.attrs.is_empty() {
+            out.push_str(" {}\n");
+        } else {
+            out.push('\n');
+            style.write_yaml(out, "    ");
+        }
+    }
+}
+
+fn write_stock_vivid_categories(out: &mut String) {
+    out.push_str("\ntext:\n");
+    write_style(out, "  special", FileCategory::Build.style());
+    write_style(out, "  todo", StyleSpec::new(Some("yellow"), &["bold"]));
+    write_style(out, "  licenses", StyleSpec::new(None, &["regular"]));
+    write_style(out, "  configuration", StyleSpec::new(None, &["regular"]));
+    write_style(out, "  other", StyleSpec::new(None, &["regular"]));
+
+    out.push_str("\nmarkup:\n");
+    StyleSpec::new(None, &["regular"]).write_yaml(out, "  ");
+
+    out.push_str("\nprogramming:\n");
+    write_style(out, "  source", FileCategory::Source.style());
+    write_style(out, "  tooling", StyleSpec::new(None, &["regular"]));
+
+    out.push_str("\nmedia:\n");
+    write_style(out, "  image", FileCategory::Image.style());
+    write_style(out, "  audio", FileCategory::Music.style());
+    write_style(out, "  video", FileCategory::Video.style());
+    write_style(out, "  fonts", StyleSpec::new(None, &["regular"]));
+    write_style(out, "  3d", FileCategory::Image.style());
+
+    out.push_str("\noffice:\n");
+    FileCategory::Document.style().write_yaml(out, "  ");
+
+    out.push_str("\narchives:\n");
+    FileCategory::Compressed.style().write_yaml(out, "  ");
+
+    out.push_str("\nexecutable:\n");
+    write_style(out, "  windows", StyleSpec::new(Some("green"), &["bold"]));
+    write_style(out, "  library", FileCategory::Compiled.style());
+    write_style(out, "  linux", FileCategory::Compiled.style());
+
+    out.push_str("\nunimportant:\n");
+    FileCategory::Temp.style().write_yaml(out, "  ");
+}
+
+fn write_style(out: &mut String, key: &str, style: StyleSpec) {
+    out.push_str(key);
+    out.push_str(":\n");
+    style.write_yaml(out, "    ");
+}
+
+fn render_vivid_filetypes(filetypes: &EzaFileTypes) -> String {
     let mut grouped: BTreeMap<FileCategory, Vec<String>> = BTreeMap::new();
     for (name, category) in &filetypes.filenames {
-        push_vivid_entry(&mut grouped, *category, name.to_string(), skip_keys);
+        grouped.entry(*category).or_default().push(name.to_string());
     }
     for (ext, category) in &filetypes.extensions {
-        push_vivid_entry(&mut grouped, *category, format!(".{ext}"), skip_keys);
+        grouped
+            .entry(*category)
+            .or_default()
+            .push(format!(".{ext}"));
     }
     for (pattern, category) in &filetypes.patterns {
-        push_vivid_entry(&mut grouped, *category, pattern.to_string(), skip_keys);
+        grouped
+            .entry(*category)
+            .or_default()
+            .push(pattern.to_string());
     }
 
-    let mut out = String::from("# Generated by eza-vivid from eza src/info/filetype.rs.\n\n");
+    let mut out = String::from("# Generated by vieza from eza src/info/filetype.rs.\n\n");
     out.push_str("eza:\n");
     for category in all_categories() {
         out.push_str("  ");
@@ -437,58 +535,195 @@ fn render_vivid_filetypes_skipping(
     out
 }
 
-fn push_vivid_entry(
-    grouped: &mut BTreeMap<FileCategory, Vec<String>>,
-    category: FileCategory,
-    entry: String,
-    skip_keys: &BTreeSet<String>,
-) {
-    if !skip_keys.contains(&normalize_vivid_entry(&entry)) {
-        grouped.entry(category).or_default().push(entry);
-    }
-}
-
-fn collect_vivid_filetype_keys(filetypes_yml: &str) -> BTreeSet<String> {
-    let mut keys = BTreeSet::new();
-    for raw_line in filetypes_yml.lines() {
-        let line = raw_line.split('#').next().unwrap_or_default().trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        if let Some(entry) = line.strip_prefix("- ") {
-            keys.insert(normalize_vivid_entry(entry));
-        }
-
-        if let (Some(start), Some(end)) = (line.find('['), line.rfind(']')) {
-            for entry in line[start + 1..end].split(',') {
-                let entry = entry.trim();
-                if !entry.is_empty() {
-                    keys.insert(normalize_vivid_entry(entry));
-                }
-            }
-        }
-    }
-    keys
-}
-
 fn normalize_vivid_entry(entry: &str) -> String {
-    let entry = entry
-        .trim()
-        .trim_end_matches(',')
-        .trim_matches('"')
-        .trim_matches('\'');
+    let entry = strip_vivid_syntax(entry);
 
     if entry.contains('*') {
-        entry.to_string()
+        entry
     } else {
         format!("*{entry}")
     }
 }
 
+fn filter_vivid_filetypes(vivid_filetypes: &str, eza_filetypes: &EzaFileTypes) -> String {
+    let rules = OverrideRules::from_eza(filetypes_to_entries(eza_filetypes));
+    let mut out = String::new();
+
+    for raw_line in vivid_filetypes.lines() {
+        let line_without_comment = raw_line.split('#').next().unwrap_or_default();
+        let trimmed = line_without_comment.trim();
+
+        if let Some(entry) = trimmed.strip_prefix("- ") {
+            if rules.overrides(entry) {
+                continue;
+            }
+        }
+
+        if let (Some(start), Some(end)) = (raw_line.find('['), raw_line.rfind(']')) {
+            if start < end {
+                let entries = raw_line[start + 1..end]
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|entry| !entry.is_empty() && !rules.overrides(entry))
+                    .collect::<Vec<_>>();
+
+                if entries.is_empty() {
+                    continue;
+                }
+
+                out.push_str(&raw_line[..start + 1]);
+                out.push_str(&entries.join(", "));
+                out.push_str(&raw_line[end..]);
+                out.push('\n');
+                continue;
+            }
+        }
+
+        out.push_str(raw_line);
+        out.push('\n');
+    }
+
+    prune_empty_yaml_mappings(&out)
+}
+
+fn prune_empty_yaml_mappings(input: &str) -> String {
+    let mut lines = input.lines().map(str::to_string).collect::<Vec<_>>();
+
+    loop {
+        let mut remove = BTreeSet::new();
+
+        for (index, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty()
+                || trimmed.starts_with('#')
+                || trimmed.starts_with('-')
+                || !trimmed.ends_with(':')
+            {
+                continue;
+            }
+
+            let indent = line_indent(line);
+            let mut next = index + 1;
+            while next < lines.len() && lines[next].trim().is_empty() {
+                next += 1;
+            }
+
+            if next == lines.len() || line_indent(&lines[next]) <= indent {
+                remove.insert(index);
+            }
+        }
+
+        if remove.is_empty() {
+            break;
+        }
+
+        lines = lines
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, line)| (!remove.contains(&index)).then_some(line))
+            .collect();
+    }
+
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
+}
+
+fn line_indent(line: &str) -> usize {
+    line.chars().take_while(|char| *char == ' ').count()
+}
+
+fn filetypes_to_entries(filetypes: &EzaFileTypes) -> Vec<String> {
+    filetypes
+        .filenames
+        .keys()
+        .cloned()
+        .chain(filetypes.extensions.keys().map(|ext| format!(".{ext}")))
+        .chain(filetypes.patterns.keys().cloned())
+        .collect()
+}
+
+struct OverrideRules {
+    exact: BTreeSet<String>,
+    patterns: Vec<String>,
+}
+
+impl OverrideRules {
+    fn from_eza(entries: Vec<String>) -> Self {
+        let mut exact = BTreeSet::new();
+        let mut patterns = Vec::new();
+
+        for entry in entries {
+            if entry.contains('*') {
+                patterns.push(entry);
+            } else {
+                exact.insert(normalize_vivid_entry(&entry));
+            }
+        }
+
+        Self { exact, patterns }
+    }
+
+    fn overrides(&self, entry: &str) -> bool {
+        let normalized = normalize_vivid_entry(entry);
+        let plain = strip_vivid_syntax(entry);
+
+        self.exact.contains(&normalized)
+            || self
+                .patterns
+                .iter()
+                .any(|pattern| wildcard_match(pattern, &plain))
+    }
+}
+
+fn strip_vivid_syntax(entry: &str) -> String {
+    entry
+        .trim()
+        .trim_end_matches(',')
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string()
+}
+
+fn wildcard_match(pattern: &str, value: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+
+    let parts = pattern.split('*').collect::<Vec<_>>();
+    if parts.len() == 1 {
+        return pattern == value;
+    }
+
+    let mut rest = value;
+    let anchored_start = !pattern.starts_with('*');
+    let anchored_end = !pattern.ends_with('*');
+
+    for (index, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+
+        if index == 0 && anchored_start {
+            let Some(next) = rest.strip_prefix(part) else {
+                return false;
+            };
+            rest = next;
+            continue;
+        }
+
+        let Some(position) = rest.find(part) else {
+            return false;
+        };
+        rest = &rest[position + part.len()..];
+    }
+
+    !anchored_end || parts.last().is_none_or(|last| value.ends_with(last))
+}
+
 fn render_combined_vivid_filetypes(vivid_filetypes: &str, eza_filetypes: &str) -> String {
     let mut out = String::from(
-        "# Generated by eza-vivid. Includes pinned vivid defaults plus eza-derived additions.\n",
+        "# Generated by vieza. Includes pinned vivid defaults plus eza-derived additions.\n",
     );
     out.push_str(vivid_filetypes.trim_end());
     out.push_str("\n\n");
@@ -569,6 +804,7 @@ const EXTENSION_TYPES: Map<&'static str, FileType> = phf_map! {
         assert_eq!(parsed.filenames["id_ed25519"], FileCategory::Crypto);
         assert_eq!(parsed.extensions["png"], FileCategory::Image);
         assert_eq!(parsed.extensions["rs"], FileCategory::Source);
+        assert_eq!(parsed.filenames["README.md"], FileCategory::Build);
         assert_eq!(parsed.patterns["README*"], FileCategory::Build);
         assert_eq!(parsed.patterns["*~"], FileCategory::Temp);
     }
@@ -578,15 +814,27 @@ const EXTENSION_TYPES: Map<&'static str, FileType> = phf_map! {
         let parsed = parse_filetypes(SAMPLE).unwrap();
         let database = render_vivid_filetypes(&parsed);
         assert!(database.contains("- \"Cargo.toml\""));
+        assert!(database.contains("- \"README.md\""));
         assert!(database.contains("- \".rs\""));
         assert!(database.contains("- \"README*\""));
     }
 
     #[test]
+    fn renders_core_file_kind_styles_to_match_eza() {
+        let theme = render_vivid_theme();
+        assert!(theme.contains("directory:\n    foreground: blue\n    font-style: bold"));
+        assert!(theme.contains("executable_file:\n    foreground: green\n    font-style: bold"));
+    }
+
+    #[test]
     fn filters_entries_already_present_in_vivid_database() {
         let parsed = parse_filetypes(SAMPLE).unwrap();
-        let vivid_keys = collect_vivid_filetype_keys(
+        let database = filter_vivid_filetypes(
             r#"
+text:
+  special:
+    - README
+    - README.md
 programming:
   source:
     rust: [.rs]
@@ -600,16 +848,14 @@ programming:
       cargo:
         - Cargo.toml
 "#,
+            &parsed,
         );
 
-        assert!(vivid_keys.contains("*.rs"));
-        assert!(vivid_keys.contains("*.class"));
-        assert!(vivid_keys.contains("*Cargo.toml"));
-
-        let database = render_vivid_filetypes_skipping(&parsed, &vivid_keys);
-        assert!(!database.contains("- \"Cargo.toml\""));
-        assert!(!database.contains("- \".rs\""));
-        assert!(database.contains("- \"README*\""));
+        assert!(!database.contains("- README"));
+        assert!(!database.contains("- README.md"));
+        assert!(!database.contains("[.rs]"));
+        assert!(!database.contains("- Cargo.toml"));
+        assert!(database.contains("- .class"));
     }
 
     #[test]
@@ -626,8 +872,6 @@ programming:
             "def456".to_string(),
             "--vivid-source".to_string(),
             "filetypes.yml".to_string(),
-            "--vivid-theme-source".to_string(),
-            "ansi.yml".to_string(),
         ])
         .unwrap();
 
@@ -636,6 +880,5 @@ programming:
         assert_eq!(args.vivid_ref, "def456");
         assert_eq!(args.source, Some(PathBuf::from("filetype.rs")));
         assert_eq!(args.vivid_source, Some(PathBuf::from("filetypes.yml")));
-        assert_eq!(args.vivid_theme_source, Some(PathBuf::from("ansi.yml")));
     }
 }
