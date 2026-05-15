@@ -294,21 +294,7 @@ fn add_dynamic_eza_rules(filetypes: &mut EzaFileTypes) {
     // Mirrors FileType::get_file_type rules not represented by eza's phf maps.
     // LS_COLORS suffix matching cannot fully encode eza's `readme*` prefix rule,
     // so include common exact filenames in addition to best-effort patterns.
-    for filename in [
-        "README",
-        "README.md",
-        "README.txt",
-        "Readme",
-        "Readme.md",
-        "Readme.txt",
-        "readme",
-        "readme.md",
-        "readme.txt",
-    ] {
-        filetypes
-            .filenames
-            .insert(filename.to_string(), FileCategory::Build);
-    }
+    add_readme_filename_rules(filetypes);
 
     for pattern in ["README*", "Readme*", "readme*"] {
         filetypes
@@ -321,6 +307,43 @@ fn add_dynamic_eza_rules(filetypes: &mut EzaFileTypes) {
     filetypes
         .patterns
         .insert("#*#".to_string(), FileCategory::Temp);
+    // Best-effort encoding for eza's `starts_with('#') && ends_with('#')` rule.
+    // LS_COLORS can match suffixes, but not both anchors; this catches Emacs-style autosaves.
+    filetypes
+        .patterns
+        .insert("#".to_string(), FileCategory::Temp);
+}
+
+fn add_readme_filename_rules(filetypes: &mut EzaFileTypes) {
+    let bases = ["README", "Readme", "ReadMe", "readme"];
+    let suffixes = [
+        "",
+        ".txt",
+        ".md",
+        ".markdown",
+        ".mdown",
+        ".mkd",
+        ".mdx",
+        ".rst",
+        ".adoc",
+        ".asciidoc",
+        ".org",
+        ".norg",
+        ".tex",
+        ".typ",
+        ".html",
+        ".htm",
+        ".xml",
+        ".pdf",
+    ];
+
+    for base in bases {
+        for suffix in suffixes {
+            filetypes
+                .filenames
+                .insert(format!("{base}{suffix}"), FileCategory::Build);
+        }
+    }
 }
 
 fn parse_map(
@@ -805,8 +828,11 @@ const EXTENSION_TYPES: Map<&'static str, FileType> = phf_map! {
         assert_eq!(parsed.extensions["png"], FileCategory::Image);
         assert_eq!(parsed.extensions["rs"], FileCategory::Source);
         assert_eq!(parsed.filenames["README.md"], FileCategory::Build);
+        assert_eq!(parsed.filenames["README.rst"], FileCategory::Build);
+        assert_eq!(parsed.filenames["ReadMe.html"], FileCategory::Build);
         assert_eq!(parsed.patterns["README*"], FileCategory::Build);
         assert_eq!(parsed.patterns["*~"], FileCategory::Temp);
+        assert_eq!(parsed.patterns["#"], FileCategory::Temp);
     }
 
     #[test]
@@ -815,8 +841,10 @@ const EXTENSION_TYPES: Map<&'static str, FileType> = phf_map! {
         let database = render_vivid_filetypes(&parsed);
         assert!(database.contains("- \"Cargo.toml\""));
         assert!(database.contains("- \"README.md\""));
+        assert!(database.contains("- \"README.rst\""));
         assert!(database.contains("- \".rs\""));
         assert!(database.contains("- \"README*\""));
+        assert!(database.contains("- \"#\""));
     }
 
     #[test]
