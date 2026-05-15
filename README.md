@@ -1,20 +1,88 @@
 # vieza
 
-Generate vivid theme/database files that mimic eza filename colors, then use vivid to produce `LS_COLORS`.
+Generate [vivid](https://github.com/sharkdp/vivid) theme/database files that mimic [eza](https://github.com/eza-community/eza) filename colors, then use vivid to produce `LS_COLORS`.
+
+## Requirements
+
+- `vivid` must be installed and available in `PATH` because `vieza generate` delegates final `LS_COLORS` rendering to vivid.
+- `curl` or `wget` is needed when generating from upstream refs. Use `--source` and `--vivid-source` to generate from local files instead.
+
+## TL;DR
+
+If you only want the latest generated `LS_COLORS`, download it from the latest GitHub release and export it for the current shell.
+
+Bash, Zsh, Ksh:
+
+```sh
+export LS_COLORS="$(curl -fsSL https://github.com/vufly/vieza/releases/latest/download/LS_COLORS)"
+```
+
+Fish:
+
+```fish
+set -gx LS_COLORS (curl -fsSL https://github.com/vufly/vieza/releases/latest/download/LS_COLORS | string trim)
+```
+
+Nushell:
+
+```nu
+$env.LS_COLORS = (http get https://github.com/vufly/vieza/releases/latest/download/LS_COLORS | str trim)
+```
+
+PowerShell:
+
+```powershell
+$env:LS_COLORS = (Invoke-WebRequest -UseBasicParsing https://github.com/vufly/vieza/releases/latest/download/LS_COLORS).Content.Trim()
+```
+
+Tcsh/Csh:
+
+```csh
+setenv LS_COLORS "`curl -fsSL https://github.com/vufly/vieza/releases/latest/download/LS_COLORS`"
+```
+
+This does not install `vieza` or `vivid`. It only uses the prebuilt release asset.
 
 ## Install
 
-From source:
+From crates.io:
+
+```sh
+cargo install vieza
+```
+
+From GitHub source:
 
 ```sh
 cargo install --git https://github.com/vufly/vieza
 ```
 
-After a release is published to crates.io:
+Or download a binary archive from the GitHub release assets.
+
+## Usage
+
+Installed CLI:
 
 ```sh
-cargo install vieza
+vieza generate
 ```
+
+Source checkout:
+
+```sh
+git clone https://github.com/vufly/vieza.git
+cd vieza
+cargo run -- generate
+```
+
+Both commands write the same outputs:
+
+- `generated/vieza.yml`
+- `generated/vieza-filetypes.yml`
+- `generated/filetypes.yml`
+- `generated/LS_COLORS`
+
+Examples below use `vieza generate`. If you are working from a source checkout without installing, use `cargo run -- generate` instead.
 
 ## Release Assets
 
@@ -27,28 +95,19 @@ GitHub releases publish these assets:
 5. `vieza.yml`: vivid theme that mimics eza filename colors.
 6. `vieza-*.tar.gz` / `vieza-*.zip`: Linux, macOS, and Windows binary archives for x86_64 and ARM64 where supported.
 
-## Usage
-
-```sh
-cargo run -- generate
-```
-
-Outputs:
-
-- `generated/vieza.yml`
-- `generated/vieza-filetypes.yml`
-- `generated/filetypes.yml`
-- `generated/LS_COLORS`
-
 ## Shell Setup
 
-Generate files first:
+### 1. Generate Files
+
+Generate or refresh files in `generated/`:
 
 ```sh
-cargo run -- generate
+vieza generate
 ```
 
-Set `LS_COLORS` from `generated/LS_COLORS` for current shell session:
+### 2. Export Generated LS_COLORS
+
+Use this when `generated/LS_COLORS` already exists.
 
 Bash, Zsh, Ksh:
 
@@ -80,33 +139,37 @@ Tcsh/Csh:
 setenv LS_COLORS "`cat generated/LS_COLORS`"
 ```
 
-Generate and set in one command:
+### 3. Generate And Export
+
+Use this when you want one command to refresh files and update the current shell.
 
 Bash, Zsh, Ksh:
 
 ```sh
-cargo run --quiet -- generate && export LS_COLORS="$(tr -d '\n' < generated/LS_COLORS)"
+vieza generate && export LS_COLORS="$(tr -d '\n' < generated/LS_COLORS)"
 ```
 
 Fish:
 
 ```fish
-cargo run --quiet -- generate; and set -gx LS_COLORS (string trim < generated/LS_COLORS)
+vieza generate; and set -gx LS_COLORS (string trim < generated/LS_COLORS)
 ```
 
 Nushell:
 
 ```nu
-cargo run --quiet -- generate; if $env.LAST_EXIT_CODE == 0 { $env.LS_COLORS = (open generated/LS_COLORS | str trim) }
+vieza generate; if $env.LAST_EXIT_CODE == 0 { $env.LS_COLORS = (open generated/LS_COLORS | str trim) }
 ```
 
 PowerShell:
 
 ```powershell
-cargo run --quiet -- generate; if ($LASTEXITCODE -eq 0) { $env:LS_COLORS = (Get-Content -Raw generated/LS_COLORS).Trim() }
+vieza generate; if ($LASTEXITCODE -eq 0) { $env:LS_COLORS = (Get-Content -Raw generated/LS_COLORS).Trim() }
 ```
 
-Regenerate `LS_COLORS` manually with vivid:
+### 4. Export From Vivid Directly
+
+Use this when you edited `generated/filetypes.yml` or `generated/vieza.yml` manually and only want vivid to render `LS_COLORS`.
 
 Bash, Zsh, Ksh:
 
@@ -138,30 +201,32 @@ Tcsh/Csh:
 setenv LS_COLORS "`vivid -d generated/filetypes.yml generate generated/vieza.yml`"
 ```
 
-Generate files and set from vivid output in one command:
+### 5. Generate And Export From Vivid Directly
+
+This skips reading `generated/LS_COLORS` and exports vivid's stdout instead.
 
 Bash, Zsh, Ksh:
 
 ```sh
-cargo run --quiet -- generate && export LS_COLORS="$(vivid -d generated/filetypes.yml generate generated/vieza.yml)"
+vieza generate && export LS_COLORS="$(vivid -d generated/filetypes.yml generate generated/vieza.yml)"
 ```
 
 Fish:
 
 ```fish
-cargo run --quiet -- generate; and set -gx LS_COLORS (vivid -d generated/filetypes.yml generate generated/vieza.yml | string trim)
+vieza generate; and set -gx LS_COLORS (vivid -d generated/filetypes.yml generate generated/vieza.yml | string trim)
 ```
 
 Nushell:
 
 ```nu
-cargo run --quiet -- generate; if $env.LAST_EXIT_CODE == 0 { $env.LS_COLORS = (vivid -d generated/filetypes.yml generate generated/vieza.yml | str trim) }
+vieza generate; if $env.LAST_EXIT_CODE == 0 { $env.LS_COLORS = (vivid -d generated/filetypes.yml generate generated/vieza.yml | str trim) }
 ```
 
 PowerShell:
 
 ```powershell
-cargo run --quiet -- generate; if ($LASTEXITCODE -eq 0) { $env:LS_COLORS = (vivid -d generated/filetypes.yml generate generated/vieza.yml).Trim() }
+vieza generate; if ($LASTEXITCODE -eq 0) { $env:LS_COLORS = (vivid -d generated/filetypes.yml generate generated/vieza.yml).Trim() }
 ```
 
 `filetypes.yml` is intended for vivid. It contains vivid's default `config/filetypes.yml` plus eza-derived filename, extension, and pattern entries. `vieza-filetypes.yml` contains only the eza-derived additions.
@@ -171,13 +236,13 @@ cargo run --quiet -- generate; if ($LASTEXITCODE -eq 0) { $env:LS_COLORS = (vivi
 Use local eza source instead of fetching:
 
 ```sh
-cargo run -- generate --source /path/to/eza/src/info/filetype.rs
+vieza generate --source /path/to/eza/src/info/filetype.rs
 ```
 
 Use local vivid filetypes source instead of fetching:
 
 ```sh
-cargo run -- generate --vivid-source /path/to/vivid/config/filetypes.yml
+vieza generate --vivid-source /path/to/vivid/config/filetypes.yml
 ```
 
 Generate from specific upstream refs. Defaults use latest known release tags for reproducible output:
@@ -186,8 +251,8 @@ Generate from specific upstream refs. Defaults use latest known release tags for
 - vivid: `v0.11.1`
 
 ```sh
-cargo run -- generate --eza-ref main
-cargo run -- generate --vivid-ref master
+vieza generate --eza-ref main
+vieza generate --vivid-ref master
 ```
 
 ## Notes
