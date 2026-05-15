@@ -112,7 +112,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" $dir
           Copy-Item LICENSE, README.md $dir
-          tar -a -cf "dist/$asset" -C dist $name
+          $archive = Join-Path $env:RUNNER_TEMP $asset
+          Compress-Archive -Path $dir -DestinationPath $archive -Force
+          Move-Item $archive "dist/$asset"
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
